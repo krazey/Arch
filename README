@@ -7,6 +7,7 @@
 # asus-hid-rog : dkms module for the keyboard. This is not required for kernel version 5.11+.
 # asus-rog-nb-wmi : dkms module for G14-G15 support. This is not required for kernel version 5.9+.
 #
+# archlinux-2021.01.01-x86_64.iso
 #
 
 # Connect to a network via wifi or ethernet
@@ -87,16 +88,16 @@ mkinitcpio -P
 # Check efi entries
 efibootmgr
 
-# Set Locale to en_GB.UTF-8 + Time + Hwclock
+# Set Locale to de_DE.UTF-8 + Time + Hwclock
 nano /etc/locale.gen
 # uncomment de_DE.UTF-8 + en_US.UTF-8
 locale-gen
 echo LANG=cd_DE.UTF-8 > /etc/locale.conf
 export LANG=de_DE.UTF-8
 ls /usr/share/zoneinfo/
-ln -sf /usr/share/zoneinfo/Europe/London > /etc/localtime
+ln -sf /usr/share/zoneinfo/Europe/Berlin > /etc/localtime
 timedatectl list-timezones
-timedatectl set-timezone Europe/London
+timedatectl set-timezone Europe/Berlin
 hwclock --systohc
 
 # Set Hostname (hostnamehere is the hostname)
@@ -228,6 +229,14 @@ yay -S multilib-devel ccache maven gradle gcc repo gnupg gperf sdl wxgtk2 squash
 # Stuff
 #
 #
+
+# Enable trim on external SSD
+sudo pacman -S usbutils
+lsusb (copy ID 0000:0000)
+sudo nano /etc/udev/rules.d/50-usb-ssd-trim.rules
+----------------------------------
+ACTION=="add|change", ATTRS{idVendor}=="0000", ATTRS{idProduct}=="0000", SUBSYSTEM=="scsi_disk", ATTR{provisioning_mode}="unmap"
+----------------------------------
 
 # Mount windos shit
 sudo mount -t ntfs-3g /dev/nvme0n1p3 /mnt/windows -o locale=de_DE.utf8
