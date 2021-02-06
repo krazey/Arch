@@ -1,0 +1,249 @@
+#
+#
+# Everything here is for my own use, be careful if you don't know what you are doing.
+#
+# This is for a UEFI install only on a ASUS Zephyrus G14.
+# AMD Ryzen 9 - 4900HS / NVIDIA GeForce GTX 1660 Ti Mobile
+# asus-hid-rog : dkms module for the keyboard. This is not required for kernel version 5.11+.
+# asus-rog-nb-wmi : dkms module for G14-G15 support. This is not required for kernel version 5.9+.
+#
+#
+
+# Connect to a network via wifi or ethernet
+# wifi: use iwctl
+# Optional: enable IPv6
+nano /etc/iwd/main.conf
+----------------------------------
+[Network]
+EnableIPv6=true
+----------------------------------
+
+# Test network connection
+ping -c 3 archlinux.org
+
+# Lists Disks
+lsblk
+
+# Wipe Disk Assuming /dev/sda is the target disk
+gdisk /dev/sda
+x
+z
+y
+y
+
+# Create Partitions Assuming /dev/sda is the target disk - /efi 512M - / ext4 - Swap 16GB
+cfdisk /dev/sda
+
+# Create ESP filesystem (Assuming /dev/sda1 is the target)
+mkfs.vfat -F32 /dev/sda1
+
+# Format root filesystem as ext4 (Assuming /dev/nvme0n1p2 is the target)
+mkfs.ext4 /dev/sda2
+
+# Setup Swap
+mkswap /dev/sda3
+swapon /dev/sda3
+
+# Mount Needed Partitions (Assuming /dev/sda is the target disk)
+mount /dev/sda2 /mnt
+mkdir -p /mnt/efi
+mount -o noatime /dev/sda1 /mnt/efi
+
+# Add third party package repository provided by the Linux G14 community above the section titled [core]
+nano /etc/pacman.conf
+----------------------------------
+[g14]
+SigLevel = Optional TrustAll
+Server = https://arch.asus-linux.org
+----------------------------------
+
+# Install
+pacstrap /mnt base base-devel grub-efi-x86_64 efibootmgr os-prober amd-ucode linux-g14 linux-g14-headers linux-firmware bash-completion wpa_supplicant iwd dialog inetutils usbutils nvme-cli nano
+
+# Create fstab
+genfstab -pU /mnt >> /mnt/etc/fstab
+
+# Chroot
+arch-chroot /mnt /bin/bash
+
+# Grub Install
+grub-install --target=x86_64-efi --efi-directory=/efi --bootloader-id=GRUB
+
+# Add resume=UUID=00000000-0000-0000-0000-000000000000 kernel parameter with uuid of swap partition
+blkid | grep /dev/sda3 | cut -f 2 -d ' ' | sed 's/"//g' >> temp.txt
+nano temp.txt (cut uuid)
+nano /etc/default/grub
+# Generate grub.cfg
+grub-mkconfig -o /boot/grub/grub.cfg
+# Hibernation
+nano /etc/mkinitcpio.conf
+# add "keymap" and "resume" to HOOKS
+----------------------------------
+HOOKS=(base udev autodetect keyboard keymap modconf block filesystems resume fsck)
+----------------------------------
+# Regenerate initramfs
+mkinitcpio -P
+
+# Check efi entries
+efibootmgr
+
+# Set Locale to en_GB.UTF-8 + Time + Hwclock
+nano /etc/locale.gen
+# uncomment de_DE.UTF-8 + en_US.UTF-8
+locale-gen
+echo LANG=cd_DE.UTF-8 > /etc/locale.conf
+export LANG=de_DE.UTF-8
+ls /usr/share/zoneinfo/
+ln -sf /usr/share/zoneinfo/Europe/London > /etc/localtime
+timedatectl list-timezones
+timedatectl set-timezone Europe/London
+hwclock --systohc
+
+# Set Hostname (hostnamehere is the hostname)
+echo hostnamehere > /etc/hostname
+
+# Add third party package repository provided by the Linux G14 community above the section titled [core]
+nano /etc/pacman.conf
+----------------------------------
+[g14]
+SigLevel = Optional TrustAll
+Server = https://arch.asus-linux.org
+----------------------------------
+
+# Enable ILoveCandy + Colour support in pacman
+nano /etc/pacman.conf
+# uncomment "#Color"
+# add "ILoveCandy" in the misc options part on a new line below "#VerbosePkgLists"
+
+# Enable multilib for 32bit applications
+nano /etc/pacman.conf
+# uncomment "#[multilib]"
+# uncomment "#Include = /etc/pacman.d/mirrorlist"
+pacman -Syu
+
+# Setup Users (username is the user, change to the name that is required)
+passwd
+useradd -m -g users -G wheel,uucp -s /bin/bash username
+passwd username
+
+# setup sudo for group "wheel" using the root password - must use "EDITOR=nano visudo" command
+EDITOR=nano visudo
+# Search for "#%wheel ALL=(ALL) ALL" and uncomment that line and add this line "Defaults rootpw" below so it looks like the following
+----------------------------------
+%wheel ALL=(ALL) ALL
+Defaults rootpw
+----------------------------------
+
+# Install KDE + Basics
+pacman -S asus-nb-ctrl xorg-server sddm sddm-kcm plasma packagekit-qt5 spectacle xfce4-terminal gnome-keyring seahorse networkmanager gufw bluez bluez-utils blueberry ristretto tumbler reflector ttf-dejavu ttf-opensans ttf-liberation noto-fonts noto-fonts-extra noto-fonts-emoji
+
+
+# Enable Services
+systemctl enable fstrim.timer
+systemctl enable sddm.service
+systemctl enable NetworkManager
+systemctl enable ufw
+systemctl enable bluetooth
+
+# Exit chroot
+exit
+
+# Reboot + Remove Arch USB
+reboot
+
+# Rank Mirrors
+sudo reflector -c DE
+
+# GPU configuration
+sudo pacman --sync --noconfirm nvidia-dkms nvidia-utils nvidia-settings nvidia-prime
+sudo systemctl enable nvidia-suspend.service
+sudo systemctl enable nvidia-resume.service
+sudo systemctl enable nvidia-hibernate.service
+sudo nano /etc/modprobe.d/g14-prohibited-drivers.conf
+----------------------------------
+blacklist nouveau
+blacklist nvidiafb
+blacklist rivafb
+blacklist i2c_nvidia_gpu
+----------------------------------
+sudo nano /etc/modprobe.d/g14-nvidia.conf
+----------------------------------
+options nvidia_drm modeset=1
+options nvidia NVreg_DynamicPowerManagement=0x02
+----------------------------------
+
+# Audio configuration
+# Add the following text above [Element PCM]
+sudo nano /usr/share/pulseaudio/alsa-mixer/paths/analog-output.conf.common
+----------------------------------
+[Element Master]
+switch = mute
+volume = ignore
+----------------------------------
+
+# Reboot
+sudo reboot
+
+# Install git + yay
+sudo pacman -S git
+mkdir aur && cd aur
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si
+
+# Install Useful Packages
+yay -S pepper-flash chromium-widevine gedit vlc libdvdcss telegram-desktop gparted gpart mtools f2fs-tools ntfs-3g exfatprogs udftools jdk-openjdk gnome-system-monitor htop grub-customizer numix-gtk-theme gvfs-smb gvfs-mtp libmtp android-udev android-tools mate-calc transmission-gtk gitkraken visual-studio-code-bin libreoffice-fresh neofetch
+
+# Optimize makepkg
+yay -S pigz pbzip2
+sudo gedit /etc/makepkg.conf
+# update the following flags for multithreading
+MAKEFLAGS="-j$(nproc)"
+COMPRESSGZ=(pigz -c -f -n)
+COMPRESSBZ2=(pbzip2 -c -f)
+COMPRESSXZ=(xz -c -z - --threads=0)
+COMPRESSZST=(zstd -c -z -q - --threads=0)
+
+# Set Swappiness
+sudo gedit /etc/sysctl.d/99-swappiness.conf
+vm.swappiness=10
+
+# Verify Microcode Update
+dmesg | grep microcode
+
+# Reboot
+sudo reboot
+
+#
+#
+# Install Complete
+#
+#
+
+# Compile Android
+yay -S multilib-devel ccache maven gradle gcc repo gnupg gperf sdl wxgtk2 squashfs-tools curl ncurses zlib schedtool perl-switch zip unzip libxslt bc rsync lib32-zlib lib32-ncurses lib32-readline ncurses5-compat-libs lib32-ncurses5-compat-libs lib32-gcc-libs gnupg flex bison gperf sdl wxgtk2 squashfs-tools curl ncurses zlib schedtool perl-switch libxslt python2-virtualenv bc rsync lib32-zlib lib32-ncurses lib32-readline lzop pngcrush imagemagick
+
+#
+#
+# Stuff
+#
+#
+
+# Mount windos shit
+sudo mount -t ntfs-3g /dev/nvme0n1p3 /mnt/windows -o locale=de_DE.utf8
+
+# Full Colour Range
+xrandr --output HDMI-3 --set "Broadcast RGB" "Full"
+
+# Trim
+fstrim -v /
+
+# Show CPU Freq
+watch -n 0 grep \"cpu MHz\" /proc/cpuinfo
+
+# Nuke GnuPG
+sudo rm -fr /etc/pacman.d/gnupg
+sudo pacman-key --init
+sudo pacman-key --populate archlinux
+sudo pacman-key --refresh-keys
+sudo pacman -Syu
